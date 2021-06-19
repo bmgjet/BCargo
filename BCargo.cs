@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("BCargo", "bmgjet", "1.0.0")]
+    [Info("BCargo", "bmgjet", "1.0.2")]
     [Description("Allows inland cargoship by blocking egress while building blocked, Sets Cargo Spawn point to stop it running though islands coming in, Cargo auto heights for tides support")]
     class BCargo : RustPlugin
     {
@@ -25,10 +25,10 @@ namespace Oxide.Plugins
 
         private void Unload()
         {
-            if (CargoCheck != null) 
-            { 
-                CargoCheck.Destroy(); 
-                CargoCheck = null; 
+            if (CargoCheck != null)
+            {
+                CargoCheck.Destroy();
+                CargoCheck = null;
             }
         }
         #endregion
@@ -38,7 +38,7 @@ namespace Oxide.Plugins
         {
             [JsonProperty(PropertyName = "Override random cargo spawn point : ")] public bool SpawnAtDefined { get; set; }
             [JsonProperty(PropertyName = "Defined Spawn Point for Cargo : ")] public Vector3 CargoSpawnLocation { get; set; }
-            [JsonProperty(PropertyName = "Distance from prevent building before allowing leave : ")] public int LeaveBlockDistance { get; set; }
+            [JsonProperty(PropertyName = "Distance from prevent building before allowing leave : ")] public float LeaveBlockDistance { get; set; }
             [JsonProperty(PropertyName = "Seconds between recheck if can leave : ")] public float ReCheckDelay { get; set; }
             [JsonProperty(PropertyName = "Enable auto leveling for tides plugin : ")] public bool Tides { get; set; }
             [JsonProperty(PropertyName = "Show debug in console : ")] public bool Debug { get; set; }
@@ -51,7 +51,7 @@ namespace Oxide.Plugins
                 SpawnAtDefined = false,
                 CargoSpawnLocation = DefaultRandomPos(),
                 LeaveBlockDistance = 40,
-                ReCheckDelay = 5,
+                ReCheckDelay = 10,
                 Tides = false,
                 Debug = false
             };
@@ -61,6 +61,7 @@ namespace Oxide.Plugins
         {
             Config.Clear();
             Config.WriteObject(GetDefaultConfig(), true);
+            config = Config.ReadObject<PluginConfig>();
         }
 
         protected override void SaveConfig()
@@ -84,55 +85,66 @@ namespace Oxide.Plugins
         #region Hooks
         private object OnCargoShipEgress(CargoShip cs)
         {
-            if (GamePhysics.CheckSphere(cs.transform.position, config.LeaveBlockDistance, 536870912, QueryTriggerInteraction.Collide)) //Check if in building block.
+            if (cs != null)
             {
-                Timer CheckEgress = timer.Once(config.ReCheckDelay, () => {cs.StartEgress();});
-                if (config.Debug) Puts("Cargo Not Allowed To Leave!");
-                return true;
+                bool BlockEgress = false;
+                //Try catch to suppress null reference if Egress called while cargo is off physics grid.
+                try
+                {
+                    BlockEgress = GamePhysics.CheckSphere(cs.transform.position, config.LeaveBlockDistance, 536870912, QueryTriggerInteraction.Collide); //Check if in building block.
+                }
+                catch { }
+
+                if (BlockEgress)
+                {
+                    Timer CheckEgress = timer.Once(config.ReCheckDelay, () => { cs.StartEgress(); });
+                    if (config.Debug) Puts("Cargo Not Allowed To Leave!");
+                    return true;
+                }
+                if (CargoCheck != null) { CargoCheck.Destroy(); }
+                if (config.Debug) Puts("Cargo Allowed To Leave!");
             }
-            CargoCheck.Destroy();
-            if (config.Debug) Puts("Cargo Allowed To Leave!");
             return null;
         }
 
         public Vector3 DefaultRandomPos(bool NotRandom = false)
         {
             Vector3 vector = TerrainMeta.RandomPointOffshore();
-            if(NotRandom) vector = config.CargoSpawnLocation;
+            if (NotRandom) vector = config.CargoSpawnLocation;
             vector.y = WaterLevel(vector);
             return vector;
         }
 
-        public float WaterLevel(Vector3 Pos){return TerrainMeta.WaterMap.GetHeight(Pos);}
+        public float WaterLevel(Vector3 Pos) { return TerrainMeta.WaterMap.GetHeight(Pos); }
 
         void OnEntitySpawned(CargoShip cs)
         {
             if (cs != null)
             {
-                if (config.SpawnAtDefined){cs.transform.position = DefaultRandomPos(true);}
+                if (config.SpawnAtDefined) { cs.transform.position = DefaultRandomPos(true); }
                 if (config.Tides)   //Changes cargoship height to match tide level.
                 {
-                        CargoCheck = timer.Every(config.ReCheckDelay, () =>
+                    CargoCheck = timer.Every(config.ReCheckDelay, () =>
+                    {
+                        if (cs != null && config.Tides)
                         {
-                            if (cs != null && config.Tides)
+                            Vector3 CurrentPos = cs.transform.position;
+                            if (CurrentPos.y != WaterLevel(config.CargoSpawnLocation))
                             {
-                                Vector3 CurrentPos = cs.transform.position;
-                                if (CurrentPos.y != WaterLevel(config.CargoSpawnLocation))
-                                {
-                                    CurrentPos.y = WaterLevel(config.CargoSpawnLocation);
-                                    cs.transform.position = CurrentPos;
-                                    if (config.Debug) Puts("Adjusting Cargo Height To Match Water Level!");
-                                }
+                                CurrentPos.y = WaterLevel(config.CargoSpawnLocation);
+                                cs.transform.position = CurrentPos;
+                                if (config.Debug) Puts("Adjusting Cargo Height To Match Water Level!");
                             }
-                            else 
+                        }
+                        else
+                        {
+                            if (CargoCheck != null)
                             {
-                                if (CargoCheck != null)
-                                {
-                                    CargoCheck.Destroy();
-                                    CargoCheck = null;
-                                }
+                                CargoCheck.Destroy();
+                                CargoCheck = null;
                             }
-                        });
+                        }
+                    });
                 }
             }
         }
@@ -150,7 +162,7 @@ namespace Oxide.Plugins
                 SaveConfig();
                 player.ChatMessage(string.Format(lang.GetMessage("spawnlocation", this, player.IPlayer.Id), config.CargoSpawnLocation.ToString()));
             }
-            else{player.IPlayer.Message(lang.GetMessage("notallowed", this, player.IPlayer.Id));}
+            else { player.IPlayer.Message(lang.GetMessage("notallowed", this, player.IPlayer.Id)); }
         }
 
         [ChatCommand("reloadbcargo")]
@@ -158,10 +170,10 @@ namespace Oxide.Plugins
         {
             if (player.IPlayer.HasPermission(permAdmin))
             {
-                  config = Config.ReadObject<PluginConfig>();
-                  player.IPlayer.Message(lang.GetMessage("reloaded", this, player.IPlayer.Id));
+                config = Config.ReadObject<PluginConfig>();
+                player.IPlayer.Message(lang.GetMessage("reloaded", this, player.IPlayer.Id));
             }
-            else{player.IPlayer.Message(lang.GetMessage("notallowed", this, player.IPlayer.Id));}
+            else { player.IPlayer.Message(lang.GetMessage("notallowed", this, player.IPlayer.Id)); }
         }
         #endregion
     }
