@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("BCargo", "bmgjet", "1.0.3")]
+    [Info("BCargo", "bmgjet", "1.0.4")]
     [Description("Allows inland cargoship by blocking egress while building blocked, Sets Cargo Spawn point to stop it running though islands coming in, Cargo auto heights for tides support")]
     class BCargo : RustPlugin
     {
@@ -100,6 +100,7 @@ namespace Oxide.Plugins
             {
                 ["notallowed"] = "You are not authorized to do that.",
                 ["reloaded"] = "Settings reloaded!",
+                ["reset"] = "Settings file reset to default!",
                 ["saved"] = "Settings saved!",
                 ["View"] = "{0} BCargo view!",
                 ["added"] = "Node {0} added!",
@@ -125,9 +126,9 @@ namespace Oxide.Plugins
             if (cs != null)
             {
                 bool BlockEgress = false;
-                    BlockEgress = BlockE(cs.transform.position);
-                    //Old Method
-                    //BlockEgress = GamePhysics.CheckSphere(cs.transform.position, config.LeaveBlockDistance, LayerMask.GetMask("Prevent Building"), QueryTriggerInteraction.Collide); //Check if in building block.
+                BlockEgress = BlockE(cs.transform.position);
+                //Old Method
+                //BlockEgress = GamePhysics.CheckSphere(cs.transform.position, config.LeaveBlockDistance, LayerMask.GetMask("Prevent Building"), QueryTriggerInteraction.Collide); //Check if in building block.
 
                 if (BlockEgress)
                 {
@@ -136,9 +137,9 @@ namespace Oxide.Plugins
                     return true;
                 }
                 if (config.Debug) Puts("Cargo Allowed");
-                if (CargoCheck != null) 
-                { 
-                    CargoCheck.Destroy(); 
+                if (CargoCheck != null)
+                {
+                    CargoCheck.Destroy();
                 }
             }
             return null;
@@ -186,10 +187,10 @@ namespace Oxide.Plugins
             return vector;
         }
 
-        private void showonscreen(BasePlayer player, string key, Vector3 value,Color c,bool nameonly = false)
+        private void showonscreen(BasePlayer player, string key, Vector3 value, Color c, bool nameonly = false)
         {
             if (!nameonly)
-            player.SendConsoleCommand("ddraw.sphere", 8f, c, value, config.LeaveBlockDistance);
+                player.SendConsoleCommand("ddraw.sphere", 8f, c, value, config.LeaveBlockDistance);
 
             player.SendConsoleCommand("ddraw.text", 8f, c, value, "<size=22> Node:" + key + " </size>");
         }
@@ -199,21 +200,25 @@ namespace Oxide.Plugins
             //Shows map placed cargo nodes
             for (int i = 0; i < global::TerrainMeta.Path.OceanPatrolFar.Count; i++)
             {
-                showonscreen(player, i.ToString(), TerrainMeta.Path.OceanPatrolFar[i],Color.blue,true);
+                showonscreen(player, i.ToString(), TerrainMeta.Path.OceanPatrolFar[i], Color.blue, true);
             }
         }
 
         private void view(BasePlayer player)
         {
+            if (CargoBlockPoint == null)
+                return;
+
             foreach (KeyValuePair<int, Vector3> point in CargoBlockPoint)
             {
                 try
                 {
-                    showonscreen(player, point.Key.ToString(), point.Value,Color.red);
+                    showonscreen(player, point.Key.ToString(), point.Value, Color.red);
                 }
                 catch { }
             }
         }
+
         private void CheckIfViewed()
         {
             if (Viewers.Count == 0) //If no viewers left remove routine
@@ -223,6 +228,7 @@ namespace Oxide.Plugins
                 Puts("BCargo View Thread Stopped!");
             }
         }
+
         IEnumerator BCargoView()
         {
             do //start loop
@@ -245,6 +251,7 @@ namespace Oxide.Plugins
                             viewer.Key.SendNetworkUpdateImmediate();
                         }
                     }
+                    
                     if (!viewer.Key.IsConnected || viewer.Key.IsSleeping())
                     {
                         //Remove from viewers list
@@ -270,7 +277,10 @@ namespace Oxide.Plugins
                     return;
                 }
             }
-            Viewers.Add(player, new Dictionary<bool, ulong> { { player.IsAdmin, 0 } });
+            if (!Viewers.ContainsKey(player))
+            {
+                Viewers.Add(player, new Dictionary<bool, ulong> { { player.IsAdmin, 0 } });
+            }
             if (_routine == null) //Start routine
             {
                 Puts("BCargo View Thread Started");
@@ -296,10 +306,10 @@ namespace Oxide.Plugins
             return false;
         }
 
-        public float WaterLevel(Vector3 Pos) 
-        { 
-            return TerrainMeta.WaterMap.GetHeight(Pos); 
-        }      
+        public float WaterLevel(Vector3 Pos)
+        {
+            return TerrainMeta.WaterMap.GetHeight(Pos);
+        }
         #endregion
 
         #region ChatCommands
@@ -354,9 +364,9 @@ namespace Oxide.Plugins
                     return;
 
                 case "add": //Adds a cargo leave block point
-                    CargoPoints(player,NewCargoPos);
+                    CargoPoints(player, NewCargoPos);
                     break;
-                     
+
                 case "remove": //Removes a cargo leave block point
                     if (args.Length != 2)
                     {
@@ -401,6 +411,11 @@ namespace Oxide.Plugins
                 case "reload":
                     config = Config.ReadObject<PluginConfig>();
                     CargoBlockPoint = config.CargoBlockPoint;
+                    message(player, "reloaded");
+                    return;
+
+                case "reset":
+                    LoadDefaultConfig();
                     message(player, "reloaded");
                     return;
 
