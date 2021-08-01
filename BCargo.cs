@@ -290,7 +290,9 @@ namespace Oxide.Plugins
 
         public void CargoPoints(BasePlayer player, Vector3 location)
         {
-            int node = CargoBlockPoint.Keys.Last() + 1;
+            int node = 0;
+            try { node = CargoBlockPoint.Keys.Last() + 1; }
+            catch { }
             CargoBlockPoint.Add(node, location);
             message(player, "added", node);
         }
@@ -298,6 +300,10 @@ namespace Oxide.Plugins
         public bool BlockE(Vector3 currentlocation)
         {
             //checks each point to see if cargo is within area.
+            if (CargoBlockPoint == null)
+            {
+                return false;
+            }
             foreach (KeyValuePair<int, Vector3> blockpoints in CargoBlockPoint)
             {
                 if (Vector3.Distance(currentlocation, blockpoints.Value) < config.LeaveBlockDistance)
